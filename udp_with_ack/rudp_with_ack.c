@@ -1,9 +1,17 @@
-#include <stdio.h>
 #include <unistd.h>
-
-
-
-#include <rudp_with_ack.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <netdb.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/file.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <time.h>
 
 typedef enum{SYN_SENT = 0,OPENING,OPEN,FIN_SENT}rudp_state_t;
 
@@ -12,10 +20,11 @@ struct rudp_hdr{
     u_int16_t type;
     u_int32_t seqno;
 }
+
 struct rudp_packet{
     struct rudp_hdr header;
-    int payload_length;
     char payload[RUDP_MAXPKTSIZE];
+    int payload_length;
 }
 
 struct sender_session{
@@ -43,6 +52,9 @@ struct rudp_socket_list{
     struct session *sessions_list_head;
     struct rudp_socket_list *next;
 }
+
+struct rudp_socket_list *socket_list_head = NULL;
+
 
 void create_receiver_session(struct sockaddr_in *addr,u_int32_t seqno,struct rudp_socket_list *socket){
     struct session *new_session = malloc(sizeof(struct session));
@@ -76,7 +88,25 @@ void create_receiver_session(struct sockaddr_in *addr,u_int32_t seqno,struct rud
     }    
 }
 
+struct rudp_packet *create_rudp_packet(u_int16_t type,u_int32_t seqno,int len,char *payload){
+    struct rudp_hdr header;
+    header.version = RUDP_VERSION;
+    header.type = type;
+    header.seqno = seqno;
 
+    struct rudp_packet *packet = malloc(sizeof(struct rudp_packet));
+    if(packet == NULL){
+        fprintf(stderr,"created_rudp_packet: Error allocating memory for packet\n");
+        return NULL;
+    }
+    packet -> header = header;
+    packet -> payload_length = len;
+    memset(&packet->payload,0,RUDP_MAXPKTSIZE);
+    if(payload != NULL){
+        memcpy(&packet->payload,payload,len);
+    }
+    return packet;
+}
 
 int receive_callback(int file,void *arg){
     char buf[sizeof(struct rudp_packet)];
@@ -141,6 +171,7 @@ int receive_callback(int file,void *arg){
                 }
             }
             
+
         }
     }
 }
