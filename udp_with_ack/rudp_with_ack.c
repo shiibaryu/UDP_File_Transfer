@@ -13,6 +13,8 @@
 #include <arpa/inet.h>
 #include <time.h>
 
+#define DROP 0
+
 typedef enum{SYN_SENT = 0,OPENING,OPEN,FIN_SENT}rudp_state_t;
 
 struct rudp_hdr{
@@ -53,6 +55,13 @@ struct rudp_socket_list{
     struct rudp_socket_list *next;
 }
 
+struct timeoutargs{
+    rudp_socket_t fd;
+    struct rudp_packet *packet;
+    struct sockaddr_in *recipient;
+}
+
+bool_t rng_seeded = false;
 struct rudp_socket_list *socket_list_head = NULL;
 
 
@@ -106,6 +115,55 @@ struct rudp_packet *create_rudp_packet(u_int16_t type,u_int32_t seqno,int len,ch
         memcpy(&packet->payload,payload,len);
     }
     return packet;
+}
+
+int send_packet(struct rudp_packet *p,struct sockaddr_in *recipient,rudp_socket_t rsocket,){
+    char type[5];
+    short t = p -> header.type;
+    if(t == 1){
+        strcpy(type,"DATA");
+    }
+    else if(t == 2){
+        strcpy(type,"ACK");
+    }
+    else if(t == 3){
+        strcpy(type,"SYN");
+    }
+    else if(t == 4){
+        strcpy(type,"FIN");
+    }
+    else{
+        strcpy(type,"BAD");
+    }
+
+    printf("Sending %s packet to %s:%d seq number = %u on socket = %d\n",type, inet_ntoa(recipient->sin_addr),ntohs(recipient->sin_port), p->header.seqno,(int)rsocket);
+    
+    /*if(DROP != 0 && rand()%DROP == 1){
+        printf("Dropped\n");
+    }*/
+    if (sendto((int)rsocket, p, sizeof(struct rudp_packet), 0, (struct sockaddr*)recipient, sizeof(struct sockaddr_in)) < 0) {
+        fprintf(stderr,"rudp_sendto:sendto failed\n");
+        return -1;            
+        }
+    }
+
+    if(!isack){
+    /*Set a timeout event if the packet isn't an ACK*/
+    struct timeoutargs *timeargs = malloc(sizeof(struct timeoutargs));
+    if(timeags == NULL){
+        fprintf(stderr,"send_packet:Error allocating timeout args\n");
+        return -1;
+    }
+    timeargs->packet == malloc(sizeof(rudp_packet));
+    if(timeargs->packet == NULL){
+        fprintf(stderr, "send_packet: Error allocating timeout args packet\n");
+        return -1;
+    }
+    timeargs->fd = rsocket;
+    memcpy(timeargs)
+    }
+
+
 }
 
 int receive_callback(int file,void *arg){
@@ -170,7 +228,7 @@ int receive_callback(int file,void *arg){
                  /* No sessions exist and we got a non-SYN, so ignore it */   
                 }
             }
-            
+
 
         }
     }
