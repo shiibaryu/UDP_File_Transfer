@@ -123,6 +123,15 @@ struct rudp_packet *create_rudp_packet(u_int16_t type,u_int32_t seqno,int len,ch
     return packet;
 }
 
+int compare_sockaddr(struct sockaddr_in *s1,struct sockaddr_in *s2){
+    char sender[16];
+    char recipient[16];
+    strcpy(sender,inet_ntoa(s1->sin_addr));
+    strcpy(recipient,inet_ntoa(s2->sin_addr));
+
+    return ((s1->sin_addr == s2->sin_family)&&(s1->sin_port == s2->sin_family)&&(strcmp(sender,recipient)));
+}
+
 rudp_socket_t rudp_socket(int port){
     if(rng_seeded == false){
         srand(time(NULL));
@@ -309,7 +318,7 @@ int rudo_sendto(rudp_socket_t rsock,void *data,int len,struct sockaddr_in *to){
         return -1;
         }
     else{
-        struct rudp_socket_list *curr = session_list_head;
+        struct rudp_socket_list *curr = socket_list_head;
         while(curr != NULL){
             if(curr->rsock == rsock){
                 break;
@@ -336,11 +345,78 @@ int rudo_sendto(rudp_socket_t rsock,void *data,int len,struct sockaddr_in *to){
                 /*void create_sender_session(struct rudp_socket_list *socket, u_int32_t seqno, struct sockaddr_in *to, struct data **data_queue) {*/
                 create_sender_sesssion(curr,seqno,to,&data_item);
             }
-            
+            else{
+                bool_t session_found = false;
+                struct session *curr_session = curr -> session_list_head;
+                struct session *last_in_list;
+                while(curr_session != NULL){
+                    if(compare_sockaddr(to,&curr_session->address)==1){
+                        bool_t data_is_queued = false;
+                        bool_t we_must_queue = true;
+                        if(curr_session -> sender == NULL){
+                            seqno = rand();
+                            create_sender_session(curr,seqno,to,&data_item);
+                            struct rudp_packet *p = create_rudp_packet(RUDP_SYN,seqno,0,NULL);
+                            send_packet(false,rsock,p,to);
+                            free(p);
+                            new_session_created = false;
+                            break;
+                            }
+                        if(curr_session->sender->data_queue != NULL){
+                            data_is_queued = true;
+                        }
+                        if(curr_session->sender->status == OPEN && !data_is_queued){
+                            int i;
+                            for(i=0;i<RUDP_WINDOW;i++){
+                                if(curr_session->sender->sliding_window[i] == NULL){
+                                    curr_session->sender->seqno = curr_session->sender->seqno + 1;
+                                    struct rudp_packet *datap = create_rudp_packet(RUDP_DATA,curr_session->sender->seqno,len,data);
+                                    curr_session->sender->sliding_window[i] = datap;
+                                    curr_session->sender->retransmission_attempts[i] = 0;
+                                    send_packet(false,rsock,datap,to);
+                                    we_must_queue = false;
+                                    break;
+                                }
+                        }
+                    }
+                    if(we_must_queue == true){
+                        if(curr_session->sender->data_queue == NULL){
+                            curr_session->sender->data_queue = data_item;
+                        }
+                        else{
+                            struct data *curr_socket = curr_session->sender->data_queue;
+                            while(curr_socket->next != NULL){
+                                curr_socket = curr_socket -> next;
+                            }
+                            curr_socket->next = data_item;
+                        }
+                    }
+                    session_found = true;
+                    new_session_created = false;
+                    break;
+                    }
+                    if(curr_session->next == NULL){
+                        last_in_list = curr_session;
+                    }
+                    curr_session = curr_session -> next;
+                }
+                if(!session_found){
+                    seqno = rand();
+                    create_sender_session(curr,seqno,to,&data_item);
+                }
+            }
         }
-
+        else{
+            fprintf(stderr,"Error: attempt to send on invalid socket. Socket not found\n");
+            return -1;
+        }
     }
-    
+    if(new_session_created == true){
+        struct rudp_packet *p = create_rudp_packet(RUDO_SYN,seqno,0,NULL);
+        send_packet(false,rsocket,p,to);
+        free(p);
+        }
+    return 0;
 }
 
 int receive_callback(int file,void *arg){
@@ -440,5 +516,4 @@ int receive_callback(int file,void *arg){
         }
     }
 }
-
 
