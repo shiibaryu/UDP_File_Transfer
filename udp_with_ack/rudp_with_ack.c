@@ -21,36 +21,46 @@ struct data {
     void *item;
     int len;
     struct data *next;
-}
+};
 
 struct rudp_hdr{
     u_int16_t version;
     u_int16_t type;
     u_int32_t seqno;
-}
+};
 
 struct rudp_packet{
     struct rudp_hdr header;
     char payload[RUDP_MAXPKTSIZE];
     int payload_length;
-}
+};
 
 struct sender_session{
-
-}
+    rudp_state_t status;
+    u_int32_t seqno;
+    struct rudp_packet *sliding_window[RUDP_WINDOW];
+    int retransmission_attempts[RUDP_WINDOW];
+    struct data *data_queue;
+    bool_t session_finished;
+    void *syn_timeout_arg;
+    void *fin_timeout_arg;
+    void *data_timeout_arg[RUDP_WINDOW];
+    int syn_retransmit_attempts;
+    int fin_retransmit_attempts;
+};
 
 struct receiver_session{
     rudp_state_t status;
     u_int32_t expected_seqno;
     bool_t session_finished;
-}
+};
 
 struct session{
     struct sender_session *sender;
     struct receiver_session *receiver;
     struct sockaddr_in address;
     struct session *next; 
-}
+};
 
 struct rudp_socket_list{
     rudp_socket_t rsock;
@@ -59,13 +69,15 @@ struct rudp_socket_list{
     int (*handler)(rudp_socket_t,rudp_event_t,struct sockaddr_in *);
     struct session *sessions_list_head;
     struct rudp_socket_list *next;
-}
+};
 
 struct timeoutargs{
     rudp_socket_t fd;
     struct rudp_packet *packet;
     struct sockaddr_in *recipient;
-}
+};
+
+
 
 bool_t rng_seeded = false;
 struct rudp_socket_list *socket_list_head = NULL;
@@ -101,6 +113,38 @@ void create_sender_session(struct rudp_socket_list *socket, u_int32_t seqno, str
         }
         curr_session -> next = new_session;
     }    
+}
+
+struct create_receiver_session(struct rudp_socket_list *curr_socket,u_int32_t seqno,struct sockaddr_in *to){
+    struct session *new_session = malloc(sizeof(struct session));
+    if(new_session = NULL){
+        fprintf(stderr,"create_receiver_session: Error allocating memory\n");
+        return;
+    }
+    new_session -> sender = NULL;
+    new_session -> address = *to;
+    new_session -> next = NULL;
+
+    struct receiver_session *new_receiver_session = malloc(sizeof(receiver_session));
+    if(new_receiver_session == NULL){
+        fprintf(stderr,"create_receiver_session: Error allocating memory\n");
+        return ;
+    }
+    new_receiver_session->status = OPENING;
+    new_receiver_session->expected_seqno = seqno;
+    new_receiver_session->session_finished = false;
+    new_session->receiver = new_receiver_session;
+
+    if(curr_socket->session_list_head == NULL){
+        curr_socket->session_list_head = new_session;
+    }
+    else{
+        struct session *curr_session = curr_socket->session_list_head;
+        while(curr_session->next != NULL){
+            curr_session = curr_session->next;
+        }
+        curr_session->next = new_session;
+    }
 }
 
 struct rudp_packet *create_rudp_packet(u_int16_t type,u_int32_t seqno,int len,char *payload){
@@ -517,3 +561,84 @@ int receive_callback(int file,void *arg){
     }
 }
 
+ int receive_callback(int file,void *arg){
+     char buf[sizeof(rudp_packet)];
+     struct sockaddr_in sender;
+     size_t sender_length = sizeof(struct rudp_packet);
+
+     recvfrom(file,&buf,sizeof(struct rudp_packet),0,(struct sockaddr*)sender,sender_length);
+
+     struct rudp_packet *received_packet = malloc(sizeof(struct rudp_packet));
+     if(received_packet == NULL){
+         fprintf(stderr,"received_packet: Error allocating packet\n");
+         return -1;
+     }
+     memcpy(received_packet,&buf,sizeof(rudp_packet));
+
+     struct rudp_hdr rudphdr = received_packet -> header;
+     char type[5];
+     short t = rudphdr.type;
+
+     if(t == 1){
+         strcpy(type,"DATA");
+     };
+     else if(t == 2){
+         strcpy(type,"ACK");
+     };
+     else if(t == 3){
+         strcpy(type,"SYN");
+     }
+     else if(t == 4){
+         strcpy(type,"FIN");
+     }
+     else{
+         strcpy(type,"Error");
+     }
+
+     printf("Received %s packet from %s: %d seq number = %u on socket = %d\n ",type,inet_ntoa(sender.sin_addr),ntohs(sender.sin_port),rudphdr.seqno,file);
+
+     struct rudp_socket_list *curr_socket = socket_list_head;
+     if(curr_socket == NULL){
+         fprintf(stderr,"Error: attempt to receive on invalid socket. No socket in the list\n");
+         return -1;
+     }
+     else{
+         while(curr_socket->next != NULL){
+             if((int)curr_socket->rsock == file){
+                 break;
+             }
+             curr_socket = curr_socket -> next;
+         }
+         if((int)curr_socket->rsock == file){
+            if(curr_socket->session_list_head == NULL){
+                if(rudphdr.type == RUDP_SYN){
+                    u_int32_t seqno = rudphdr.seqno + 1;
+                    create_receiver_session(curr_socket,seqno,&sender);
+                    struct rudp_packet *p = create_rudp_packet(RUDP_SYN,seqno,0,NULL);
+                    send_packet(true,(rudp_socket_t)file,p,&sender);
+                    free(p);
+                }
+                else{
+                    printf("No session extis");
+                }
+            else{
+                boo_t session_found = false;
+                struct session *curr_session = curr_socket -> session_list_head;
+                struct session *last_session;
+                while(curr_session != NULL){
+                    if(curr_session->next == NULL){
+                        last_session = curr_session;
+                }
+                if(compare_sockaddr(&curr_session->address,&sender) == 1){
+                    session_found = true;
+                    break;
+                }
+                curr_session = curr_session ->next;
+            }
+            if(session_found = true){
+                
+            }
+        }
+    }
+ }
+}
