@@ -418,7 +418,7 @@ int rudo_sendto(rudp_socket_t rsock,void *data,int len,struct sockaddr_in *to){
                         if(curr_session->sender->data_queue != NULL){
                             data_is_queued = true;
                         }
-                        if(curr_session->sender->status == OPEN && !data_is_queued){
+                        if(curr_session->sender->status == OPEN && data_is_queued == true){
                             int i;
                             for(i=0;i<RUDP_WINDOW;i++){
                                 if(curr_session->sender->sliding_window[i] == NULL){
@@ -473,104 +473,6 @@ int rudo_sendto(rudp_socket_t rsock,void *data,int len,struct sockaddr_in *to){
 }
 
 int receive_callback(int file,void *arg){
-    char buf[sizeof(struct rudp_packet)];
-    struct sockaddr_in sender;
-    size_t sender_length = sizeof(struct sockaddr_in);
-    
-    recvfrom(file,&buf,sizeof(struct rudp_packet),0,(struct sockaddr*)&sender,sender_length);
-
-    struct rudp_packet *received_packet = malloc(sizeof(struct rudp_packet));
-    if(received_packet == NULL){
-        fprintf(stderr,"receive_callback: Error allocating packet");
-        return -1;
-    }
-    memcpy(received_packet,&buf,sizeof(struct rudp_packet));
-
-    struct rudp_hdr rudpheader = received_packet -> header;
-    char type[5];
-    short t = rudpheader.type;  
-    if(t == 1){
-        strcpy(type,"DATA");
-    }
-    else if(t == 2){
-        strcpy(type,"ACK");
-    }
-    else if(t == 4){
-        strcpy(type,"SYN");
-    }
-    else if(t == 5){
-        strcpy(type,"FIN");
-    }
-    else{
-        strcpy(type,"BAD");
-    }
-
-    printf("Received %s from %s:%d seq number = %u on socket = %d \n",type,
-    inet_ntoa(sender.sin_addr),ntohs(sender.sin_port),rudpheader.seqno,file);
-
-    if(socket_list_head == NULL){
-        fprintf(stderr,"Error: attempt to receive on invalid socket. No sockets in the list.\n");
-        return -1;
-    }
-    else{
-        struct rudp_socket_list *curr_socket = socket_list_head;
-        while(curr_socket != NULL){
-            if((int)curr_socket->rsock == file){
-                break;
-            }
-            curr_socket = curr_socket -> next;
-        }
-        if((int)curr_socket->rsock == file){
-            if(curr_socket->sessions_list_head == NULL){
-                if(rudpheader.type == RUDP_SYN){
-                    u_int32_t seqno = rudpheader.seqno + 1;
-                    create_receiver_session(&receiver,seqno,curr_socket);
-                    /*respond with an ack*/
-                    struct rudp_packet *p = create_rudp_packet(RUDP_ACK,seqno,0,NULL);
-                    send_packet(true,(rudp_packet_t)file,p,&sender);
-                    free(p);
-                }
-                else{
-                 /* No sessions exist and we got a non-SYN, so ignore it */   
-                }
-            }
-            else{
-                /*他のセッションあった場合*/
-                bool_t session_found = false;
-                struct session *curr_session = curr_socket -> session_list_head;
-                struct session *last_session;
-                while(curr_session != NULL){
-                    if(curr_session->next == NULL){
-                        last_session = curr_session;
-                    }
-                    if(compare_sockaddress(&curr_session->address,&sender) == 1){
-                        session_found = true;
-                        break;
-                    }
-                    curr_session = curr_session->next;
-                }
-                if(session_found == false){
-                    if(rudpheader.type == RUDP_ACK){
-                        u_int32_t seqno = rudptype.seqno + 1;
-                        create_receiver_session(curr_socket,seqno,&sender);
-                        struct rudp_packet *p  = create_rudp_packet(RUDP_ACK,seqno,0,NULL);
-                        send_packet(true,(rudp_sock_t) file,p,&sender);
-                        free(p);
-                    }
-                    else{
-                    }
-                }
-                else{
-                    if(rudpheader.type = RUDP_SYN){
-                        if(curr_session->receiver == NULL || curr_session ->receiver->status = OPENING ){}
-                    }
-                }
-            }
-        }
-    }
-}
-
- int receive_callback(int file,void *arg){
      char buf[sizeof(rudp_packet)];
      struct sockaddr_in sender;
      size_t sender_length = sizeof(struct rudp_packet);
@@ -606,8 +508,7 @@ int receive_callback(int file,void *arg){
 
      printf("Received %s packet from %s: %d seq number = %u on socket = %d\n ",type,inet_ntoa(sender.sin_addr),ntohs(sender.sin_port),rudphdr.seqno,file);
 
-     struct rudp_socket_list *curr_socket = socket_list_head;
-     if(curr_socket == NULL){
+     if(socket_list_head == NULL){
          fprintf(stderr,"Error: attempt to receive on invalid socket. No socket in the list\n");
          return -1;
      }
@@ -618,6 +519,7 @@ int receive_callback(int file,void *arg){
              }
              curr_socket = curr_socket -> next;
          }
+         /*sender側のsyn*/
          if((int)curr_socket->rsock == file){
             if(curr_socket->session_list_head == NULL){
                 if(rudphdr.type == RUDP_SYN){
@@ -630,6 +532,7 @@ int receive_callback(int file,void *arg){
                 else{
                     printf("No session extis");
                 }
+            }
             else{
                 boo_t session_found = false;
                 struct session *curr_session = curr_socket -> session_list_head;
@@ -644,6 +547,7 @@ int receive_callback(int file,void *arg){
                 }
                 curr_session = curr_session ->next;
                 }
+                /*receiver側がsynをもらった時のsynの返信*/
                 if(session_found = false){
                     if(rudphdr.type == RUDP_SYN){
                         u_int32_t seqno = rudphdr.seqno + 1;
@@ -657,6 +561,7 @@ int receive_callback(int file,void *arg){
                     }
                 }
                 else{
+                    /*sender側がsynをもらった時のack*/
                     if(rudphdr.type == RUDP_SYN){
                         if(curr_socket->receiver == NULL || curr_session->receiver->status == OPENING){
                             struct receiver_session *new_receiver_session = malloc(sizeof(receiver_session));
@@ -677,6 +582,7 @@ int receive_callback(int file,void *arg){
                         else{
                         }
                     }
+                    /*sender側がsynを送って初めてackをもらった時のdata転送*/
                     if(rudphdr.type == RUDP_ACK){
                         u_int32_t ack_sqn = received_packet->header.seqno;
                         if(curr_session->sender->status == SYN_SENT){
@@ -687,13 +593,227 @@ int receive_callback(int file,void *arg){
                                 free(t->packet);
                                 free(t->recipient);
                                 free(t);
+                                curr_session->sender->status = OPEN;
+                                while(curr_session->sender->data_queue != NULL){
+                                    if(curr_session->sender->sliding_window[RUDP_WINDOW-1] != NULL){
+                                        break;
+                                    }
+                                    else{
+                                        int index;
+                                        int i;
+                                        for(i = RUDP_WINDOW-1 ;i>=0;i-){
+                                            if(curr_session->sender->sliding_window[i] == NULL){
+                                                index = i;
+                                            }
+                                        }
+                                        u_int32_t seqno = ++syn_sqn;
+                                        int len = curr_session->sender->data_queue->len;
+                                        char *payload = curr_session->sender->data_queue->item;
+                                        struct rudp_packet *datap = create_rudp_packet(RUDP_DATA,seqno,len,payload);
+                                        curr_session->sender->seqno = +1;
+                                        curr_session->sender->sliding_window[index] = datap;
+                                        curr_session->sender->retransmission_attempts[index] = 0;
+                                        struct data *temp = curr_session->sender->data_queue;
+                                        curr_session->sender->data_queue = curr_session->sender->data_queue->next;
+                                        free(temp->item);
+                                        free(temp);
+
+                                        send_packet(false,(rudp_socket_t)file,datap,&sender);
+                                    }
+                                }
+                            }
+                        }
+                        /*sender側のDataに対するack*/
+                        else if(curr_session->sender->status == OPEN){
+                            if(curr_session->sender->sliding_window[0] != NULL){
+                                if(curr_session->sender->sliding_window[0]->header.seqno == (rudphdr.seqno-1)){
+                                    event_timeout_delete(timeout_callback,curr_session->sender->data_timeout_arg[0]);
+                                    struct timeoutargs *args = (struct timeoutargs *)curr_session->sender->data_timeout_arg[0];
+                                    free(args->packet);
+                                    free(args->recipient);
+                                    free(args);
+                                    free(curr_session->sender->sliding_window[0]);
+
+                                    if(RUDP_WINDOW == 1){
+                                        curr_session->sender->sliding_window[0] = NULL;
+                                        curr_session->sender->retransmission_attempts[0] = 0;
+                                        curr_session->sender->data_timeout_arg[0] = NULL;
+                                    }
+                                    else{
+                                        int i;
+                                        for(i=0;i < RUDP_WINDOW -1;i++){
+                                            curr_session->sender->sliding_window[i] = curr_session->sender->sliding_window[i+1];
+                                            curr_session->sender->retransmission_attempts[i] = curr_session->sender->retransmission_attempts[i+1];
+                                            curr_session->sender->data_timeout_arg[i] = curr_session->sender->data_timeout_arg[i+1];
+
+                                            if(i == RUDP_WINDOW-2){
+                                                curr_session->sender->sliding_window[i+1] = NULL;
+                                                curr_session->sender->retransmission_attempts[i+1] = 0;
+                                                curr_session->sender->data_timeout_arg[i+1]=NULL;
+                                            }                                            
+                                        }
+                                    }
+
+                                    while(curr_session->sender->data_queue != NULL){
+                                        if(curr_session->sender->sliding_window[RUDP_WINDOW-1] != NULL){
+                                            break;
+                                        }
+                                        else{
+                                            int index;
+                                            int i;
+                                            for(i=RUDP_WINDOW-1;i>=0;i-){
+                                                if(curr_session->sender->sliding_window[i]= NULL){
+                                                    index = i;
+                                                }
+                                            }
+                                            curr_session->sender->seqno = curr_session->sender->seqno + 1;
+                                            u_int32_t seqno = curr_session->sender->seqno;
+                                            int len = curr_session->sender->data_queue->len;
+                                            char *payload = curr_session->sender->data_queue->item;
+                                            struct rudp_packet *datap = create_rudp_packet(RUDP_DATA,seqno,len,payload);
+                                            curr_session->sender->sliding_window[index] = datap;
+                                            curr_session->sender->retransmission_attempts[index] = 0;
+                                            struct data *temp = curr_session->sender->data_queue;
+                                            curr_session->sender->data_queue = curr_session->sender->data_queue->next;
+                                            free(temp->item);
+                                            free(temp);
+                                            send_packet(false,(rudp_socket_t)file,datap,&sender);
+                                        }
+                                    }
+                                    if(curr_socket->close_requested){
+                                        struct session *head_session = curr_socket->session_list_head;
+                                        while(head_session != NULL){
+                                            if(head_session->sender->session->session_finished == false){
+                                                if(head_session->sender->data_queue == NULL && 
+                                                   head_session->sender->sliding_window[0] == NULL &&
+                                                   head_session->sender->status == OPEN){
+                                                   header_session->sender->seqno = header_session->sender->seqno +1;
+                                                   struct rudp_packet *p = create_rudp_packet(RUDP_FIN,head_session->sender->seqno,0,NULL);
+                                                   send_packet(false,(rudp_socket_t)file,p,&head_session->address);
+                                                   free(p);
+                                                   head_session->sender->status = FIN_SENT;
+                                                   }
+                                                }
+                                                head_session = head_session->next;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        else if(curr_session->sender->status = FIN_SENT){
+                            if((curr_session->sender->seqno + 1)== received_packet->header.seqno){
+                                event_timeout_delete(timeout_callback,curr_session->sender->fin_timeout_arg_arg);
+                                struct timeoutargs *t = curr_session->sender->fin_timeout_arg;
+                                free(t->packet);
+                                free(t->recipient);
+                                free(t);
+                                curr_session->sender->session_finished = true;
+                                if(curr_socket->close_requested){
+                                    struct session *head_session = curr_socket->session_list_head;
+                                    bool_t all_done = true;
+                                    while(head_session != NULL){
+                                        if(head_session->sender->session_finished == false){
+                                            all_done = false;
+                                        }
+                                        else if(head_session->receiver != NULL && head_session->sender->session_finished == false){
+                                            all_done = false;
+                                        }
+                                        else{
+                                            free(head_session->sender);
+                                            if(head_session->receiver){
+                                                free(head_session->receiver);
+                                            }
+                                        }
+                                        struct session *temp = head_session;
+                                        head_session = head_session->next;
+                                        free(temp);
+                                    }
+                                    if(all_done){
+                                        if(curr_socket->header != NULL){
+                                            curr_socket->handler((rudp_socket_t)file,RUDP_EVENT_ClOSED,&sender);
+                                            event_fd_delete(receive_callback,(rudp_socket_t)file);
+                                            close(file);
+                                            free(curr_socket);
+                                        }
+                                    }
+                                }
+                            }
+                            else{
                                 
+                            }
+                        }
+                    }
+                    else if(rudphdr.type == RUDP_DATA){
+                        if(curr_socket->receiver->status==OPENING){
+                            if(rudphdr.seqno==curr_session->receiver->expected_seqno){
+                                curr_session->receiver->status = OPEN;
+                            }
+                        }
+                        if(rudphdr.seqno == curr_session->receiver->expected_seqno){
+                            u_int32_t seqno = rudphdr.seqno + 1;
+                            curr_sesion->receiver->expected_seqno = seqno;
+                            struct rudp_packet *p = create_rudp_packet(RUDP_ACK,seqno,0,NULL);
+                            send_packet(true,(rudp_socket_t)file,p,&sender);
+                            free(p);
+
+                            if(curr_socket->recv_handler != NULL){
+                                curr_socket->recv_handler((rudp_socket_t)file,&sender,(void*)&received_packet->payload,received_packet->payload_length);
+                            }
+                        }
+                        else if(SEQ_GEQ(rudphdr.seqno,(curr_session->receiver->expected_seqno-RUDP_WINDOW))&&
+                                SEQ_LT(rudphdr.seqno,curr_session->receiver->expected_seqno)){
+                                    u_int32_t seqno = rudphdr.seqno + 1;
+                                    struct rudp_packet *p = create_rudp_packet(RUDP_ACK,seqno,0,NULL);
+                                    send_packet(true,(rudp_socket_t)file,p,&sender);
+                                    free(p);
+                        }
+                    }
+                    else if(rudphdr.type == RUDP_FIN){
+                        if(cuurr_session->receiver->statis == OPEN){
+                            if(rudphdr.seqno == curr_session->receiver->expected_seqno){
+                                u_int32_t seqno = curr_session->receiver->expected_seqno + 1;
+                                struct rudp_packet *p = create_rudp_packet(RUDP_ACK,seqno,NULL,0);
+                                send_packet(true,(rudp_socket_t)file,p,&sender);
+                                free(p);
+                                curr_session->receiver->session_finished = true;
+
+                                if(curr_socket->close_requested){
+                                    struct session *head_session = curr_socket->session_list_head;
+                                    int all_done = true;
+                                    while(head_session != NULL){
+                                        if(head_session->receiver->session_finished == false){
+                                            all_done = false;
+                                        }
+                                        else if(head_session->receiver != NULL && head_session->receiver->session_finished == false){
+                                            all_done = false;
+                                        }
+                                        else{
+                                            free(head_session->sender);
+                                            if(head_session->receiver){
+                                                free(head_session->receiver);
+                                            }
+                                        }
+                                        if(all_done == true){
+                                            if(curr_socket->handler != NULL){
+                                                curr_socket->handler((rudp_socket_t),RUDP_EVENT_ClOSED,&sender);
+                                                event_fd_delete(receive_callback,(rudp_socket_t)file);
+                                                close(file);
+                                                free(curr_socket);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            else{
+
                             }
                         }
                     }
                 }
             }
-            }
         }
     }
+
+    free(received_packet);
+    return 0;
  }
